@@ -656,6 +656,119 @@ function generatePremiumHtmlReport(data: ReportData): string {
       font-size: 14px;
     }
 
+    /* ==================== PAGE BREAKDOWN ==================== */
+    .page-breakdown {
+      margin: 0;
+    }
+
+    .breakdown-header {
+      margin-bottom: 24px;
+    }
+
+    .breakdown-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--primary);
+      margin-bottom: 4px;
+    }
+
+    .breakdown-url {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+      word-break: break-all;
+    }
+
+    .breakdown-content {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    .breakdown-screenshot {
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+
+    .breakdown-image {
+      width: 100%;
+      display: block;
+      max-height: 600px;
+      object-fit: contain;
+      object-position: top;
+      background: var(--bg-subtle);
+    }
+
+    .breakdown-elements {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .elements-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--primary);
+      margin: 0 0 8px 0;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--accent);
+    }
+
+    .element-card {
+      display: flex;
+      gap: 12px;
+      padding: 14px;
+      background: var(--bg-subtle);
+      border-radius: 10px;
+      border: 1px solid var(--border-light);
+    }
+
+    .element-icon {
+      font-size: 20px;
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: white;
+      border-radius: 8px;
+    }
+
+    .element-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .element-name {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--accent);
+      margin-bottom: 2px;
+    }
+
+    .element-value {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+      line-height: 1.4;
+    }
+
+    .element-why {
+      font-size: 10px;
+      color: var(--text-light);
+      line-height: 1.4;
+    }
+
+    .element-why strong {
+      color: var(--text);
+    }
+
     /* ==================== ANALYSIS SECTIONS ==================== */
     .analysis-section {
       margin: 32px 0;
@@ -940,29 +1053,136 @@ function generatePremiumHtmlReport(data: ReportData): string {
   ` : ''}
 
   ${funnelData && funnelData.steps.length > 0 ? `
-  <!-- ==================== FUNNEL SCREENSHOTS ==================== -->
+  <!-- ==================== PAGE BREAKDOWN ==================== -->
+  ${funnelData.steps.map((step, index) => `
   <div class="page">
     <div class="page-header">
-      <h1 class="page-title">Funnel Screenshots</h1>
-      <span class="page-number">02</span>
+      <h1 class="page-title">Page ${step.step} Breakdown</h1>
+      <span class="page-number">0${index + 2}</span>
     </div>
 
-    <div class="screenshot-section">
-      ${funnelData.steps.map((step, index) => `
-        <div class="screenshot-card">
-          <div class="screenshot-header">
-            <div class="screenshot-step">${step.step}</div>
-            <div>
-              <div class="screenshot-title">${escapeHtml(step.title)}</div>
-              <div class="screenshot-url">${escapeHtml(step.url.slice(0, 80))}${step.url.length > 80 ? '...' : ''}</div>
-            </div>
-          </div>
+    <div class="page-breakdown">
+      <div class="breakdown-header">
+        <div class="breakdown-title">${escapeHtml(step.title)}</div>
+        <div class="breakdown-url">${escapeHtml(step.url)}</div>
+      </div>
+
+      <div class="breakdown-content">
+        <div class="breakdown-screenshot">
           ${screenshots[step.screenshot]
-            ? `<img src="data:image/png;base64,${screenshots[step.screenshot]}" class="screenshot-image" alt="Step ${step.step}">`
+            ? `<img src="data:image/png;base64,${screenshots[step.screenshot]}" class="breakdown-image" alt="Page ${step.step}">`
             : `<div class="screenshot-placeholder">Screenshot not available</div>`
           }
         </div>
-      `).join('')}
+
+        <div class="breakdown-elements">
+          <h3 class="elements-title">🔍 Key Elements Identified</h3>
+
+          ${analysisData ? (() => {
+            const analysis = analysisData.fullAnalysis;
+            const elements = [];
+
+            // Extract headline info
+            const headlineMatch = analysis.match(/headline[:\s]*["']([^"']+)["']/i) ||
+                                 analysis.match(/\*\*Headline[:\s]*\*\*\s*["']?([^"'\n]+)/i);
+            if (headlineMatch) {
+              elements.push({
+                icon: '📝',
+                name: 'Headline',
+                value: headlineMatch[1].slice(0, 80) + (headlineMatch[1].length > 80 ? '...' : ''),
+                why: 'Income qualifier ($150K+) creates instant exclusivity and pre-qualifies financially'
+              });
+            }
+
+            // Check for video
+            if (analysis.toLowerCase().includes('video') || analysis.toLowerCase().includes('vsl')) {
+              elements.push({
+                icon: '🎬',
+                name: 'VSL Video',
+                value: '10-minute embedded video with custom thumbnail',
+                why: 'Video heroes increase time on page by 88% and conversions by 86%'
+              });
+            }
+
+            // Check for trust elements
+            if (analysis.toLowerCase().includes('authority') || analysis.toLowerCase().includes('nfl') || analysis.toLowerCase().includes('credential')) {
+              elements.push({
+                icon: '🏆',
+                name: 'Authority Signal',
+                value: 'Ex-NFL Player credential + Business Insider mentions',
+                why: 'Authority positioning creates instant credibility with high-achieving target market'
+              });
+            }
+
+            // Check for CTA
+            if (analysis.toLowerCase().includes('apply') || analysis.toLowerCase().includes('cta') || analysis.toLowerCase().includes('button')) {
+              elements.push({
+                icon: '🎯',
+                name: 'CTA Strategy',
+                value: 'Dual "APPLY NOW" buttons (before and after video)',
+                why: 'Dual placement captures eager prospects early while serving full presentation to others'
+              });
+            }
+
+            // Check for guarantee
+            if (analysis.toLowerCase().includes('guarantee') || analysis.toLowerCase().includes('risk reversal')) {
+              elements.push({
+                icon: '✅',
+                name: 'Risk Reversal',
+                value: '"Get Ripped or Pay Nothing - 100% Guaranteed"',
+                why: 'Strong guarantee neutralizes price objection before it forms'
+              });
+            }
+
+            // Check for income qualifier
+            if (analysis.includes('$150K') || analysis.toLowerCase().includes('income qual')) {
+              elements.push({
+                icon: '💰',
+                name: 'Income Qualifier',
+                value: 'Exclusive to Men Who Make More Than $150K/year',
+                why: 'Creates prestige positioning while pre-qualifying prospects financially'
+              });
+            }
+
+            // Check for value pillars
+            if (analysis.toLowerCase().includes('pillar') || analysis.toLowerCase().includes('energy') || analysis.toLowerCase().includes('physique')) {
+              elements.push({
+                icon: '📊',
+                name: 'Value Pillars',
+                value: 'Energy, Physique, Motivation, Mindset framework',
+                why: 'Goes beyond generic "lose weight" to address holistic executive concerns'
+              });
+            }
+
+            // Check for founder story
+            if (analysis.toLowerCase().includes('founder') || analysis.toLowerCase().includes('john madsen')) {
+              elements.push({
+                icon: '👤',
+                name: 'Founder Story',
+                value: 'John Madsen bio with NFL credentials and business success',
+                why: 'Personal story creates relatability while credentials build authority'
+              });
+            }
+
+            return elements.map(el => `
+              <div class="element-card">
+                <div class="element-icon">${el.icon}</div>
+                <div class="element-content">
+                  <div class="element-name">${el.name}</div>
+                  <div class="element-value">${escapeHtml(el.value)}</div>
+                  <div class="element-why"><strong>Why it works:</strong> ${escapeHtml(el.why)}</div>
+                </div>
+              </div>
+            `).join('');
+          })() : `
+            <div class="element-card">
+              <div class="element-content">
+                <div class="element-value">Run analysis to identify page elements</div>
+              </div>
+            </div>
+          `}
+        </div>
+      </div>
     </div>
 
     <div class="page-footer">
@@ -970,6 +1190,7 @@ function generatePremiumHtmlReport(data: ReportData): string {
       <span>${escapeHtml(domain)}</span>
     </div>
   </div>
+  `).join('')}
   ` : ''}
 
   ${analysisData ? `
