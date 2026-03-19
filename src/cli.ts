@@ -6,6 +6,7 @@ import { discoverAds, listAds } from "./commands/ads";
 import { captureEmails } from "./commands/capture-emails";
 import { generateReport } from "./commands/report";
 import { hackFunnel } from "./commands/hack";
+import { recursiveHack } from "./commands/recursive";
 
 const program = new Command();
 
@@ -24,12 +25,48 @@ program
   .option("-d, --depth <number>", "Max funnel pages to capture", "10")
   .option("--include-ads", "Also discover Facebook ads", false)
   .option("--ads-query <query>", "Custom query for ad discovery")
+  .option("--recursive", "Enable recursive competitor discovery", false)
+  .option("--recursive-depth <number>", "Max recursion depth (with --recursive)", "2")
+  .option("--max-competitors <number>", "Max competitors (with --recursive)", "10")
   .option("--skip-analysis", "Skip AI analysis", false)
   .option("--skip-pdf", "Skip PDF report generation", false)
   .option("--headless", "Run browsers in headless mode", true)
   .option("--no-headless", "Run with visible browsers")
   .action(async (url, options) => {
-    await hackFunnel(url, options);
+    if (options.recursive) {
+      // Use recursive mode
+      await recursiveHack(url, {
+        output: options.output,
+        maxDepth: parseInt(options.recursiveDepth, 10),
+        maxCompetitors: parseInt(options.maxCompetitors, 10),
+        includeAnalysis: !options.skipAnalysis,
+        headless: options.headless,
+      });
+    } else {
+      await hackFunnel(url, options);
+    }
+  });
+
+// ============================================
+// RECURSIVE DISCOVERY
+// ============================================
+program
+  .command("landscape <url>")
+  .description("🕸️ Recursive discovery: map entire competitive landscape")
+  .option("-o, --output <dir>", "Output directory", "./output")
+  .option("-d, --depth <number>", "Max recursion depth", "2")
+  .option("-m, --max <number>", "Max competitors to map", "10")
+  .option("--analyze", "Run AI analysis on each funnel", false)
+  .option("--headless", "Run browsers in headless mode", true)
+  .option("--no-headless", "Run with visible browsers")
+  .action(async (url, options) => {
+    await recursiveHack(url, {
+      output: options.output,
+      maxDepth: parseInt(options.depth, 10),
+      maxCompetitors: parseInt(options.max, 10),
+      includeAnalysis: options.analyze,
+      headless: options.headless,
+    });
   });
 
 // ============================================
