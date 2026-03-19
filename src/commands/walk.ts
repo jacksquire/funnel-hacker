@@ -23,6 +23,7 @@ interface FunnelData {
   startedAt: string;
   completedAt?: string;
   steps: FunnelStep[];
+  error?: string;
 }
 
 export async function walkFunnel(startUrl: string, options: WalkOptions) {
@@ -110,7 +111,18 @@ export async function walkFunnel(startUrl: string, options: WalkOptions) {
     console.log(`   📄 Data: ${jsonPath}\n`);
   } catch (error) {
     console.error("\n❌ Error during funnel walk:", error);
-    throw error;
+
+    // Save partial progress if we captured any steps
+    if (funnelData.steps.length > 0) {
+      funnelData.completedAt = new Date().toISOString();
+      funnelData.error = String(error);
+      const jsonPath = join(outputDir, "funnel.json");
+      await writeFile(jsonPath, JSON.stringify(funnelData, null, 2));
+      console.log(`\n⚠️ Partial capture saved: ${funnelData.steps.length} steps`);
+      console.log(`   📁 Output: ${outputDir}`);
+    } else {
+      throw error;
+    }
   } finally {
     await browser.close();
   }

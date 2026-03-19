@@ -390,7 +390,7 @@ function generateEmailReport(sequence: EmailSequence): string {
       /urgent|last chance|ending|expires|final/i.test(e.subject)
     ).length,
     personalization: sequence.emails.filter((e) =>
-      /\{|{{|[name]|[first/i.test(e.subject)
+      /\{|\{\{|\[name\]|\[first/i.test(e.subject)
     ).length,
     numbers: sequence.emails.filter((e) => /\d/.test(e.subject)).length,
   };
