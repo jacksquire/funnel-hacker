@@ -2,6 +2,20 @@ import { readFile } from "fs/promises";
 import { join } from "path";
 import Anthropic from "@anthropic-ai/sdk";
 
+// Ensure API key is available
+export function getAnthropicClient(): Anthropic {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.error("\n❌ ANTHROPIC_API_KEY not found!\n");
+    console.error("To fix this, either:");
+    console.error("  1. Create a .env file with: ANTHROPIC_API_KEY=sk-ant-...");
+    console.error("  2. Or export it: export ANTHROPIC_API_KEY=sk-ant-...");
+    console.error("\nGet your API key at: https://console.anthropic.com/\n");
+    process.exit(1);
+  }
+  return new Anthropic({ apiKey });
+}
+
 const SPECIALISTS_DIR = join(import.meta.dir, "../../specialists");
 
 export type SpecialistType =

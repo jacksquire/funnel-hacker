@@ -1,10 +1,10 @@
 import { readFile, writeFile, readdir } from "fs/promises";
 import { join } from "path";
-import Anthropic from "@anthropic-ai/sdk";
 import {
   runFullAnalysis,
   type SpecialistType,
   getAllSpecialists,
+  getAnthropicClient,
 } from "../lib/specialists";
 
 interface AnalyzeOptions {
@@ -64,7 +64,7 @@ export async function analyzeFunnel(funnelDir: string, options: AnalyzeOptions) 
   );
 
   // Initialize Anthropic client
-  const client = new Anthropic();
+  const client = getAnthropicClient();
 
   // Determine which specialists to run
   let specialists: SpecialistType[] | undefined;
