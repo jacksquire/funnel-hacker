@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
 import { walkFunnel } from "./commands/walk";
+import { analyzeFunnel, listSpecialists } from "./commands/analyze";
 // import { discoverAds } from "./commands/ads";
 // import { generateReport } from "./commands/report";
 
@@ -20,6 +21,25 @@ program
   .option("--no-headless", "Run with visible browser")
   .action(async (url, options) => {
     await walkFunnel(url, options);
+  });
+
+program
+  .command("analyze <dir>")
+  .description("Analyze a captured funnel with AI specialists")
+  .option(
+    "-s, --specialists <list>",
+    "Comma-separated list of specialists to use (default: auto-detect)"
+  )
+  .option("-o, --output <format>", "Output format: json, markdown, both", "both")
+  .action(async (dir, options) => {
+    await analyzeFunnel(dir, options);
+  });
+
+program
+  .command("specialists")
+  .description("List available analysis specialists")
+  .action(async () => {
+    await listSpecialists();
   });
 
 // program
