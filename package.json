@@ -1,7 +1,9 @@
 {
   "name": "funnel-hacker",
-  "version": "0.1.0",
-  "description": "CLI tool to reverse-engineer competitor funnels",
+  "version": "0.2.0",
+  "description": "AI-powered CLI tool to reverse-engineer competitor funnels. Capture pages, analyze ads, decode email sequences, and generate intelligence reports.",
+  "author": "Jack Squire",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "funnel-hacker": "./dist/cli.js"
@@ -10,18 +12,40 @@
     "dev": "bun run src/cli.ts",
     "build": "bun build src/cli.ts --outdir dist --target node",
     "test": "bun test",
+    "hack": "bun run src/cli.ts hack",
     "walk": "bun run src/cli.ts walk",
-    "ads": "bun run src/cli.ts ads"
+    "ads": "bun run src/cli.ts ads",
+    "analyze": "bun run src/cli.ts analyze",
+    "report": "bun run src/cli.ts report"
+  },
+  "keywords": [
+    "funnel",
+    "marketing",
+    "competitive-intelligence",
+    "ai",
+    "claude",
+    "automation",
+    "scraper",
+    "facebook-ads",
+    "email-marketing",
+    "conversion-optimization"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jacksquire/funnel-hacker.git"
   },
   "dependencies": {
-    "commander": "^12.0.0",
-    "playwright": "^1.42.0",
     "@anthropic-ai/sdk": "^0.20.0",
     "chalk": "^5.3.0",
-    "ora": "^8.0.0"
+    "commander": "^12.0.0",
+    "ora": "^8.0.0",
+    "playwright": "^1.42.0"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5.4.0"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
   }
 }
