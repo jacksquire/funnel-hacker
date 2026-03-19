@@ -69,15 +69,28 @@ export async function generateReport(funnelDir: string, options: ReportOptions) 
     process.exit(1);
   }
 
-  // Load screenshots as base64
+  // Load screenshots as base64 - check multiple possible locations
   const screenshots: Record<string, string> = {};
   if (funnelData) {
     for (const step of funnelData.steps) {
-      try {
-        const imgBuffer = await readFile(join(funnelDir, step.screenshot));
-        screenshots[step.screenshot] = imgBuffer.toString("base64");
-      } catch {
-        // Screenshot not found
+      const possiblePaths = [
+        join(funnelDir, step.screenshot),
+        join(funnelDir, basename(step.screenshot)),
+      ];
+
+      for (const imgPath of possiblePaths) {
+        try {
+          const imgBuffer = await readFile(imgPath);
+          screenshots[step.screenshot] = imgBuffer.toString("base64");
+          console.log(`   ✅ Loaded screenshot: ${step.screenshot}`);
+          break;
+        } catch {
+          // Try next path
+        }
+      }
+
+      if (!screenshots[step.screenshot]) {
+        console.log(`   ⚠️ Screenshot not found: ${step.screenshot}`);
       }
     }
   }
@@ -96,10 +109,17 @@ export async function generateReport(funnelDir: string, options: ReportOptions) 
     }
   }
 
+  // Extract domain for title
+  let domain = "Unknown";
+  try {
+    domain = new URL(funnelData?.startUrl || analysisData?.funnelSource || "").hostname.replace("www.", "");
+  } catch {}
+
   // Generate HTML
-  const title = options.title || `Funnel Analysis: ${funnelData?.startUrl || "Unknown"}`;
-  const html = generateHtmlReport({
+  const title = options.title || `${domain} Funnel Analysis`;
+  const html = generatePremiumHtmlReport({
     title,
+    domain,
     funnelData,
     analysisData,
     adsData,
@@ -119,7 +139,7 @@ export async function generateReport(funnelDir: string, options: ReportOptions) 
   await page.pdf({
     path: outputPath,
     format: "A4",
-    margin: { top: "20mm", bottom: "20mm", left: "15mm", right: "15mm" },
+    margin: { top: "0", bottom: "0", left: "0", right: "0" },
     printBackground: true,
   });
 
@@ -133,6 +153,7 @@ export async function generateReport(funnelDir: string, options: ReportOptions) 
 
 interface ReportData {
   title: string;
+  domain: string;
   funnelData: FunnelData | null;
   analysisData: AnalysisData | null;
   adsData: any;
@@ -141,41 +162,86 @@ interface ReportData {
   template: string;
 }
 
-function generateHtmlReport(data: ReportData): string {
-  const { title, funnelData, analysisData, adsData, emailData, screenshots } = data;
-
-  // Convert markdown to simple HTML
-  const markdownToHtml = (md: string) => {
-    return md
-      .replace(/^### (.*$)/gim, "<h3>$1</h3>")
-      .replace(/^## (.*$)/gim, "<h2>$1</h2>")
-      .replace(/^# (.*$)/gim, "<h1>$1</h1>")
-      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-      .replace(/\*(.*?)\*/g, "<em>$1</em>")
-      .replace(/`(.*?)`/g, "<code>$1</code>")
-      .replace(/```[\s\S]*?```/g, (match) => {
-        const code = match.replace(/```\w*\n?/g, "").replace(/```/g, "");
-        return `<pre><code>${escapeHtml(code)}</code></pre>`;
-      })
-      .replace(/^\- (.*$)/gim, "<li>$1</li>")
-      .replace(/(<li>.*<\/li>)\n(?=<li>)/g, "$1")
-      .replace(/(<li>.*<\/li>)+/g, "<ul>$&</ul>")
-      .replace(/^\d+\. (.*$)/gim, "<li>$1</li>")
-      .replace(/\n\n/g, "</p><p>")
-      .replace(/\n/g, "<br>")
-      .replace(/\|.*\|/g, (match) => {
-        const cells = match.split("|").filter(Boolean);
-        const row = cells.map((c) => `<td>${c.trim()}</td>`).join("");
-        return `<tr>${row}</tr>`;
-      });
-  };
+function generatePremiumHtmlReport(data: ReportData): string {
+  const { title, domain, funnelData, analysisData, adsData, emailData, screenshots } = data;
 
   const escapeHtml = (text: string) => {
     return text
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   };
+
+  // Parse the analysis to extract key sections
+  let executiveSummary = "";
+  let strategicOverview = "";
+  let specialistSections: { name: string; content: string; grade?: string }[] = [];
+  let actionableSection = "";
+
+  if (analysisData?.fullAnalysis) {
+    const analysis = analysisData.fullAnalysis;
+
+    // Extract executive summary
+    const execMatch = analysis.match(/\*\*What This Is:\*\*([\s\S]*?)(?=---|\n##)/);
+    if (execMatch) {
+      executiveSummary = analysis.split("---")[0];
+    }
+
+    // Extract grades from specialist reports
+    const gradeMatches = analysis.matchAll(/\*\*Grade:\*\*\s*([A-F][+-]?)/g);
+    const grades: Record<string, string> = {};
+    for (const match of gradeMatches) {
+      grades[match.index?.toString() || ""] = match[1];
+    }
+  }
+
+  // Process markdown with better handling
+  const processMarkdown = (md: string) => {
+    if (!md) return "";
+
+    return md
+      // Headers
+      .replace(/^#### (.*$)/gim, '<h4 class="section-h4">$1</h4>')
+      .replace(/^### (.*$)/gim, '<h3 class="section-h3">$1</h3>')
+      .replace(/^## (.*$)/gim, '<h2 class="section-h2">$1</h2>')
+      .replace(/^# (.*$)/gim, '<h1 class="section-h1">$1</h1>')
+      // Bold and italic
+      .replace(/\*\*\*(.*?)\*\*\*/g, "<strong><em>$1</em></strong>")
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.*?)\*/g, "<em>$1</em>")
+      // Code blocks
+      .replace(/```[\s\S]*?```/g, (match) => {
+        const code = match.replace(/```\w*\n?/g, "").replace(/```/g, "");
+        return `<pre class="code-block"><code>${escapeHtml(code)}</code></pre>`;
+      })
+      // Inline code
+      .replace(/`(.*?)`/g, '<code class="inline-code">$1</code>')
+      // Tables
+      .replace(/\|(.+)\|/g, (match, content) => {
+        const cells = content.split("|").map((c: string) => c.trim());
+        if (cells.every((c: string) => c.match(/^[-:]+$/))) {
+          return ""; // Skip separator rows
+        }
+        const isHeader = match.includes("---") || content.includes("Metric") || content.includes("Element");
+        const tag = isHeader ? "th" : "td";
+        return `<tr>${cells.map((c: string) => `<${tag}>${c}</${tag}>`).join("")}</tr>`;
+      })
+      // Horizontal rules
+      .replace(/^---$/gim, '<hr class="divider">')
+      // Lists
+      .replace(/^\d+\.\s+(.*$)/gim, '<li class="numbered">$1</li>')
+      .replace(/^[-•]\s+(.*$)/gim, '<li class="bullet">$1</li>')
+      // Paragraphs
+      .replace(/\n\n/g, '</p><p class="paragraph">')
+      .replace(/\n/g, "<br>");
+  };
+
+  const currentDate = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric"
+  });
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -183,7 +249,26 @@ function generateHtmlReport(data: ReportData): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(title)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --primary: #0f172a;
+      --secondary: #1e293b;
+      --accent: #3b82f6;
+      --accent-light: #60a5fa;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --text: #1e293b;
+      --text-light: #64748b;
+      --text-muted: #94a3b8;
+      --bg: #ffffff;
+      --bg-subtle: #f8fafc;
+      --bg-muted: #f1f5f9;
+      --border: #e2e8f0;
+      --border-light: #f1f5f9;
+    }
+
     * {
       box-sizing: border-box;
       margin: 0;
@@ -191,373 +276,721 @@ function generateHtmlReport(data: ReportData): string {
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 11pt;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 10pt;
       line-height: 1.6;
-      color: #1a1a1a;
-      background: white;
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
     }
 
+    /* ==================== COVER PAGE ==================== */
     .cover {
-      page-break-after: always;
       height: 100vh;
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #0f172a 100%);
+      color: white;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 60px;
+      page-break-after: always;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cover::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -30%;
+      width: 80%;
+      height: 150%;
+      background: radial-gradient(ellipse, rgba(59, 130, 246, 0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .cover::after {
+      content: '';
+      position: absolute;
+      bottom: -30%;
+      left: -20%;
+      width: 60%;
+      height: 100%;
+      background: radial-gradient(ellipse, rgba(16, 185, 129, 0.1) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .cover-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      position: relative;
+      z-index: 1;
+    }
+
+    .cover-logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .cover-logo-icon {
+      width: 48px;
+      height: 48px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--success) 100%);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+    }
+
+    .cover-logo-text {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .cover-date {
+      font-size: 11px;
+      color: rgba(255,255,255,0.6);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .cover-main {
+      flex: 1;
       display: flex;
       flex-direction: column;
       justify-content: center;
+      position: relative;
+      z-index: 1;
+    }
+
+    .cover-badge {
+      display: inline-flex;
       align-items: center;
-      text-align: center;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      color: white;
-      padding: 40px;
+      gap: 8px;
+      background: rgba(59, 130, 246, 0.2);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      padding: 8px 16px;
+      border-radius: 100px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--accent-light);
+      margin-bottom: 24px;
+      width: fit-content;
     }
 
-    .cover h1 {
-      font-size: 32pt;
-      font-weight: 700;
-      margin-bottom: 20px;
+    .cover-title {
+      font-size: 48px;
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -2px;
+      margin-bottom: 16px;
+      max-width: 600px;
     }
 
-    .cover .subtitle {
-      font-size: 14pt;
-      opacity: 0.9;
+    .cover-subtitle {
+      font-size: 20px;
+      font-weight: 400;
+      color: rgba(255,255,255,0.7);
+      max-width: 500px;
+      line-height: 1.5;
+    }
+
+    .cover-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      position: relative;
+      z-index: 1;
+    }
+
+    .cover-meta {
+      display: flex;
+      gap: 40px;
+    }
+
+    .cover-meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .cover-meta-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: rgba(255,255,255,0.5);
+    }
+
+    .cover-meta-value {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .cover-team {
+      text-align: right;
+    }
+
+    .cover-team-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: rgba(255,255,255,0.5);
+      margin-bottom: 8px;
+    }
+
+    .cover-team-names {
+      font-size: 11px;
+      color: rgba(255,255,255,0.7);
+      line-height: 1.6;
+    }
+
+    /* ==================== PAGE LAYOUT ==================== */
+    .page {
+      padding: 50px 60px;
+      min-height: 100vh;
+      page-break-after: always;
+      position: relative;
+    }
+
+    .page::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--accent), var(--success));
+    }
+
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       margin-bottom: 40px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
     }
 
-    .cover .meta {
-      font-size: 10pt;
-      opacity: 0.7;
+    .page-title {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--primary);
+      letter-spacing: -1px;
     }
 
-    .cover .logo {
-      font-size: 48pt;
-      margin-bottom: 30px;
+    .page-number {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
     }
 
-    .content {
-      padding: 20px 0;
+    /* ==================== EXECUTIVE SUMMARY ==================== */
+    .exec-summary {
+      background: linear-gradient(135deg, var(--bg-subtle) 0%, var(--bg-muted) 100%);
+      border-radius: 16px;
+      padding: 32px;
+      margin-bottom: 32px;
     }
 
-    h1 {
-      font-size: 24pt;
-      color: #1a1a2e;
-      margin: 30px 0 15px 0;
-      padding-bottom: 10px;
-      border-bottom: 2px solid #e94560;
+    .exec-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px;
+      margin-top: 24px;
     }
 
-    h2 {
-      font-size: 16pt;
-      color: #16213e;
-      margin: 25px 0 12px 0;
+    .exec-item {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
 
-    h3 {
-      font-size: 13pt;
-      color: #0f3460;
+    .exec-item-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    .exec-item-value {
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .exec-bottom-line {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+      color: white;
+      border-radius: 12px;
+      padding: 24px;
+      margin-top: 24px;
+    }
+
+    .exec-bottom-line-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: rgba(255,255,255,0.6);
+      margin-bottom: 8px;
+      font-weight: 600;
+    }
+
+    .exec-bottom-line-text {
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    /* ==================== GRADES ==================== */
+    .grades-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin: 24px 0;
+    }
+
+    .grade-card {
+      background: var(--bg-subtle);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      border: 1px solid var(--border-light);
+    }
+
+    .grade-card-specialist {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .grade-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .grade-a { background: #dcfce7; color: #166534; }
+    .grade-b { background: #fef3c7; color: #92400e; }
+    .grade-c { background: #fed7aa; color: #9a3412; }
+    .grade-d { background: #fecaca; color: #991b1b; }
+
+    .grade-card-insight {
+      font-size: 11px;
+      color: var(--text-light);
+      line-height: 1.4;
+    }
+
+    /* ==================== SCREENSHOT GALLERY ==================== */
+    .screenshot-section {
+      margin: 32px 0;
+    }
+
+    .screenshot-card {
+      background: var(--bg-subtle);
+      border-radius: 16px;
+      overflow: hidden;
+      margin-bottom: 24px;
+      border: 1px solid var(--border);
+    }
+
+    .screenshot-header {
+      padding: 16px 24px;
+      background: white;
+      border-bottom: 1px solid var(--border-light);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .screenshot-step {
+      background: var(--accent);
+      color: white;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .screenshot-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .screenshot-url {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .screenshot-image {
+      width: 100%;
+      display: block;
+    }
+
+    .screenshot-placeholder {
+      height: 300px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-muted);
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    /* ==================== ANALYSIS SECTIONS ==================== */
+    .analysis-section {
+      margin: 32px 0;
+    }
+
+    .section-h1 {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--primary);
+      margin: 32px 0 16px 0;
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--accent);
+    }
+
+    .section-h2 {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--secondary);
+      margin: 24px 0 12px 0;
+    }
+
+    .section-h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
       margin: 20px 0 10px 0;
     }
 
-    p {
-      margin: 10px 0;
+    .paragraph {
+      margin: 12px 0;
+      line-height: 1.7;
     }
-
-    ul, ol {
-      margin: 10px 0 10px 25px;
-    }
-
-    li {
-      margin: 5px 0;
-    }
-
-    code {
-      background: #f4f4f4;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-family: 'SF Mono', Consolas, monospace;
-      font-size: 9pt;
-    }
-
-    pre {
-      background: #1a1a2e;
-      color: #e4e4e4;
-      padding: 15px;
-      border-radius: 8px;
-      overflow-x: auto;
-      margin: 15px 0;
-    }
-
-    pre code {
-      background: none;
-      padding: 0;
-      color: inherit;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 15px 0;
-    }
-
-    th, td {
-      border: 1px solid #ddd;
-      padding: 10px;
-      text-align: left;
-    }
-
-    th {
-      background: #f4f4f4;
-      font-weight: 600;
-    }
-
-    .screenshot {
-      max-width: 100%;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      margin: 15px 0;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-
-    .step-card {
-      border: 1px solid #e0e0e0;
-      border-radius: 8px;
-      padding: 20px;
-      margin: 20px 0;
-      background: #fafafa;
-      page-break-inside: avoid;
-    }
-
-    .step-card h3 {
-      margin-top: 0;
-    }
-
-    .grade {
-      display: inline-block;
-      padding: 4px 12px;
-      border-radius: 4px;
-      font-weight: 600;
-      font-size: 10pt;
-    }
-
-    .grade-a { background: #4ade80; color: #166534; }
-    .grade-b { background: #a3e635; color: #3f6212; }
-    .grade-c { background: #fbbf24; color: #92400e; }
-    .grade-d { background: #fb923c; color: #9a3412; }
-    .grade-f { background: #f87171; color: #991b1b; }
 
     .highlight-box {
-      background: #e0f2fe;
-      border-left: 4px solid #0284c7;
-      padding: 15px 20px;
+      background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+      border-left: 4px solid var(--accent);
+      padding: 20px 24px;
+      border-radius: 0 12px 12px 0;
       margin: 20px 0;
-      border-radius: 0 8px 8px 0;
     }
 
     .warning-box {
-      background: #fef3c7;
-      border-left: 4px solid #f59e0b;
-      padding: 15px 20px;
-      margin: 20px 0;
-      border-radius: 0 8px 8px 0;
-    }
-
-    .toc {
-      background: #f8fafc;
-      padding: 20px 30px;
-      border-radius: 8px;
+      background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+      border-left: 4px solid var(--warning);
+      padding: 20px 24px;
+      border-radius: 0 12px 12px 0;
       margin: 20px 0;
     }
 
-    .toc h2 {
-      margin-top: 0;
+    .success-box {
+      background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+      border-left: 4px solid var(--success);
+      padding: 20px 24px;
+      border-radius: 0 12px 12px 0;
+      margin: 20px 0;
     }
 
-    .toc ul {
-      list-style: none;
-      margin: 0;
-      padding: 0;
+    /* ==================== TABLES ==================== */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 11px;
     }
 
-    .toc li {
-      padding: 5px 0;
-      border-bottom: 1px solid #e2e8f0;
+    th {
+      background: var(--bg-muted);
+      padding: 12px 16px;
+      text-align: left;
+      font-weight: 600;
+      color: var(--text);
+      border-bottom: 2px solid var(--border);
     }
 
-    .footer {
-      text-align: center;
-      font-size: 9pt;
-      color: #666;
-      margin-top: 40px;
-      padding-top: 20px;
-      border-top: 1px solid #e0e0e0;
+    td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-light);
     }
 
+    tr:hover td {
+      background: var(--bg-subtle);
+    }
+
+    /* ==================== CODE & LISTS ==================== */
+    .code-block {
+      background: var(--primary);
+      color: #e2e8f0;
+      padding: 20px;
+      border-radius: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      line-height: 1.6;
+      overflow-x: auto;
+      margin: 16px 0;
+    }
+
+    .inline-code {
+      background: var(--bg-muted);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+    }
+
+    ul, ol {
+      margin: 12px 0 12px 24px;
+    }
+
+    li {
+      margin: 8px 0;
+      line-height: 1.6;
+    }
+
+    li.bullet::marker {
+      color: var(--accent);
+    }
+
+    li.numbered::marker {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .divider {
+      border: none;
+      height: 1px;
+      background: var(--border);
+      margin: 32px 0;
+    }
+
+    /* ==================== FOOTER ==================== */
+    .page-footer {
+      position: absolute;
+      bottom: 30px;
+      left: 60px;
+      right: 60px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 9px;
+      color: var(--text-muted);
+      padding-top: 16px;
+      border-top: 1px solid var(--border-light);
+    }
+
+    /* ==================== PRINT ==================== */
     @media print {
-      .page-break {
-        page-break-before: always;
+      .page {
+        page-break-after: always;
+      }
+
+      .screenshot-card {
+        page-break-inside: avoid;
       }
     }
   </style>
 </head>
 <body>
-  <!-- Cover Page -->
+
+  <!-- ==================== COVER PAGE ==================== -->
   <div class="cover">
-    <div class="logo">🎯</div>
-    <h1>${escapeHtml(title)}</h1>
-    <div class="subtitle">Competitive Funnel Intelligence Report</div>
-    <div class="meta">
-      Generated: ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
-      <br>
-      By Funnel Hacker AI Analysis Team
+    <div class="cover-header">
+      <div class="cover-logo">
+        <div class="cover-logo-icon">🎯</div>
+        <div class="cover-logo-text">Funnel Hacker</div>
+      </div>
+      <div class="cover-date">${currentDate}</div>
+    </div>
+
+    <div class="cover-main">
+      <div class="cover-badge">
+        <span>📊</span>
+        <span>Competitive Intelligence Report</span>
+      </div>
+      <h1 class="cover-title">${escapeHtml(domain)}</h1>
+      <p class="cover-subtitle">Complete funnel analysis with AI-powered insights, conversion architecture breakdown, and actionable recommendations.</p>
+    </div>
+
+    <div class="cover-footer">
+      <div class="cover-meta">
+        <div class="cover-meta-item">
+          <span class="cover-meta-label">Pages Analyzed</span>
+          <span class="cover-meta-value">${funnelData?.steps.length || 0}</span>
+        </div>
+        <div class="cover-meta-item">
+          <span class="cover-meta-label">Source URL</span>
+          <span class="cover-meta-value">${escapeHtml(funnelData?.startUrl?.replace(/^https?:\/\//, '').slice(0, 40) || 'N/A')}</span>
+        </div>
+      </div>
+      <div class="cover-team">
+        <div class="cover-team-label">Analysis Team</div>
+        <div class="cover-team-names">
+          Diana (Funnels) • Clara (Copy)<br>
+          Marcus (Ads) • Victor (VSL) • Nadia (Email)<br>
+          Jack (Strategy)
+        </div>
+      </div>
     </div>
   </div>
 
-  <div class="content">
-    <!-- Table of Contents -->
-    <div class="toc">
-      <h2>Contents</h2>
-      <ul>
-        ${analysisData ? "<li>Executive Summary</li>" : ""}
-        ${funnelData ? "<li>Funnel Overview</li>" : ""}
-        ${funnelData ? "<li>Page-by-Page Breakdown</li>" : ""}
-        ${analysisData ? "<li>Strategic Analysis</li>" : ""}
-        ${adsData ? "<li>Ad Library Analysis</li>" : ""}
-        ${emailData ? "<li>Email Sequence Analysis</li>" : ""}
-        <li>Actionable Recommendations</li>
-      </ul>
+  ${analysisData ? `
+  <!-- ==================== EXECUTIVE SUMMARY ==================== -->
+  <div class="page">
+    <div class="page-header">
+      <h1 class="page-title">Executive Summary</h1>
+      <span class="page-number">01</span>
     </div>
 
-    ${
-      analysisData
-        ? `
-    <!-- Executive Summary -->
-    <h1>Executive Summary</h1>
-    <div class="highlight-box">
-      ${markdownToHtml(analysisData.fullAnalysis.split("---")[0] || analysisData.fullAnalysis.slice(0, 2000))}
+    <div class="exec-summary">
+      ${(() => {
+        const analysis = analysisData.fullAnalysis;
+        const whatThis = analysis.match(/\*\*What This Is:\*\*\s*([^\n*]+)/)?.[1] || "";
+        const whoFor = analysis.match(/\*\*Who It's For:\*\*\s*([^\n*]+)/)?.[1] || "";
+        const whatSells = analysis.match(/\*\*What It Sells:\*\*\s*([^\n*]+)/)?.[1] || "";
+        const whyWorks = analysis.match(/\*\*Why It Works:\*\*\s*([^\n*]+)/)?.[1] || "";
+        const bottomLine = analysis.match(/\*\*Bottom Line:\*\*\s*([^\n*]+)/)?.[1] || "";
+
+        return `
+          <div class="exec-grid">
+            <div class="exec-item">
+              <div class="exec-item-label">What This Is</div>
+              <div class="exec-item-value">${escapeHtml(whatThis)}</div>
+            </div>
+            <div class="exec-item">
+              <div class="exec-item-label">Who It's For</div>
+              <div class="exec-item-value">${escapeHtml(whoFor)}</div>
+            </div>
+            <div class="exec-item">
+              <div class="exec-item-label">What It Sells</div>
+              <div class="exec-item-value">${escapeHtml(whatSells)}</div>
+            </div>
+            <div class="exec-item">
+              <div class="exec-item-label">Why It Works</div>
+              <div class="exec-item-value">${escapeHtml(whyWorks)}</div>
+            </div>
+          </div>
+          ${bottomLine ? `
+          <div class="exec-bottom-line">
+            <div class="exec-bottom-line-label">Bottom Line</div>
+            <div class="exec-bottom-line-text">${escapeHtml(bottomLine)}</div>
+          </div>
+          ` : ''}
+        `;
+      })()}
     </div>
-    `
-        : ""
-    }
 
-    ${
-      funnelData
-        ? `
-    <!-- Funnel Overview -->
-    <h1 class="page-break">Funnel Overview</h1>
-    <table>
-      <tr><th>Metric</th><th>Value</th></tr>
-      <tr><td>Starting URL</td><td>${escapeHtml(funnelData.startUrl)}</td></tr>
-      <tr><td>Total Steps</td><td>${funnelData.steps.length}</td></tr>
-      <tr><td>Captured</td><td>${new Date(funnelData.startedAt).toLocaleDateString()}</td></tr>
-    </table>
+    ${(() => {
+      const analysis = analysisData.fullAnalysis;
+      const dianaGrade = analysis.match(/Diana.*?\*\*Grade:\*\*\s*([A-F][+-]?)/s)?.[1];
+      const claraGrade = analysis.match(/Clara.*?\*\*Grade:\*\*\s*([A-F][+-]?)/s)?.[1];
+      const dianaInsight = analysis.match(/Diana.*?\*\*Key Insight:\*\*\s*([^\n]+)/s)?.[1] || "";
+      const claraInsight = analysis.match(/Clara.*?\*\*Key Insight:\*\*\s*([^\n]+)/s)?.[1] || "";
 
-    <!-- Page by Page -->
-    <h1 class="page-break">Page-by-Page Breakdown</h1>
-    ${funnelData.steps
-      .map(
-        (step) => `
-    <div class="step-card">
-      <h3>Step ${step.step}: ${escapeHtml(step.title)}</h3>
-      <p><strong>URL:</strong> ${escapeHtml(step.url)}</p>
-      ${
-        screenshots[step.screenshot]
-          ? `<img src="data:image/png;base64,${screenshots[step.screenshot]}" class="screenshot" alt="Step ${step.step} screenshot">`
-          : ""
+      if (dianaGrade || claraGrade) {
+        return `
+          <h2 class="section-h2">Specialist Grades</h2>
+          <div class="grades-grid">
+            ${dianaGrade ? `
+            <div class="grade-card">
+              <div class="grade-card-specialist">Funnel Architecture</div>
+              <div class="grade-badge grade-${dianaGrade[0].toLowerCase()}">${dianaGrade}</div>
+              <div class="grade-card-insight">${escapeHtml(dianaInsight.slice(0, 100))}${dianaInsight.length > 100 ? '...' : ''}</div>
+            </div>
+            ` : ''}
+            ${claraGrade ? `
+            <div class="grade-card">
+              <div class="grade-card-specialist">Copy & Messaging</div>
+              <div class="grade-badge grade-${claraGrade[0].toLowerCase()}">${claraGrade}</div>
+              <div class="grade-card-insight">${escapeHtml(claraInsight.slice(0, 100))}${claraInsight.length > 100 ? '...' : ''}</div>
+            </div>
+            ` : ''}
+          </div>
+        `;
       }
-    </div>
-    `
-      )
-      .join("")}
-    `
-        : ""
-    }
+      return '';
+    })()}
 
-    ${
-      analysisData
-        ? `
-    <!-- Full Analysis -->
-    <h1 class="page-break">Strategic Analysis</h1>
-    ${markdownToHtml(analysisData.fullAnalysis)}
-
-    ${Object.entries(analysisData.specialistReports || {})
-      .map(
-        ([specialist, report]) => `
-    <h2 class="page-break">${specialist.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} Report</h2>
-    ${markdownToHtml(report)}
-    `
-      )
-      .join("")}
-    `
-        : ""
-    }
-
-    ${
-      adsData
-        ? `
-    <!-- Ads Analysis -->
-    <h1 class="page-break">Ad Library Analysis</h1>
-    <table>
-      <tr><th>Metric</th><th>Value</th></tr>
-      <tr><td>Query</td><td>${escapeHtml(adsData.query || "")}</td></tr>
-      <tr><td>Total Ads Found</td><td>${adsData.totalFound || 0}</td></tr>
-      <tr><td>Active Ads</td><td>${(adsData.ads || []).filter((a: any) => a.status === "active").length}</td></tr>
-    </table>
-
-    <h2>Top Ads</h2>
-    ${(adsData.ads || [])
-      .slice(0, 5)
-      .map(
-        (ad: any, i: number) => `
-    <div class="step-card">
-      <h3>Ad ${i + 1}: ${escapeHtml(ad.pageName || "Unknown")}</h3>
-      <p><strong>Status:</strong> ${ad.status} | <strong>Started:</strong> ${ad.startDate || "Unknown"}</p>
-      <p><strong>Landing URL:</strong> ${escapeHtml(ad.landingUrl || "Not captured")}</p>
-      ${ad.primaryText ? `<p><strong>Ad Copy:</strong> ${escapeHtml(ad.primaryText.slice(0, 300))}...</p>` : ""}
-      ${
-        screenshots[ad.screenshotPath]
-          ? `<img src="data:image/png;base64,${screenshots[ad.screenshotPath]}" class="screenshot" alt="Ad screenshot">`
-          : ""
-      }
-    </div>
-    `
-      )
-      .join("")}
-    `
-        : ""
-    }
-
-    ${
-      emailData
-        ? `
-    <!-- Email Sequence -->
-    <h1 class="page-break">Email Sequence Analysis</h1>
-    <table>
-      <tr><th>Metric</th><th>Value</th></tr>
-      <tr><td>Funnel URL</td><td>${escapeHtml(emailData.funnelUrl || "")}</td></tr>
-      <tr><td>Total Emails</td><td>${emailData.totalEmails || 0}</td></tr>
-      <tr><td>Capture Period</td><td>${emailData.captureStarted ? new Date(emailData.captureStarted).toLocaleDateString() : "N/A"} - ${emailData.captureEnded ? new Date(emailData.captureEnded).toLocaleDateString() : "Ongoing"}</td></tr>
-    </table>
-
-    <h2>Email Subjects</h2>
-    <ol>
-    ${(emailData.emails || [])
-      .map(
-        (email: any) => `
-      <li><strong>"${escapeHtml(email.subject)}"</strong> - Day ${email.dayInSequence}</li>
-    `
-      )
-      .join("")}
-    </ol>
-    `
-        : ""
-    }
-
-    <!-- Footer -->
-    <div class="footer">
-      Generated by Funnel Hacker • ${new Date().toISOString()}
-      <br>
-      AI Analysis Team: Marcus (Ads) • Diana (Funnels) • Nadia (Email) • Victor (VSL) • Clara (Copy) • Jack (Strategy)
+    <div class="page-footer">
+      <span>Funnel Hacker • Competitive Intelligence</span>
+      <span>${escapeHtml(domain)}</span>
     </div>
   </div>
+  ` : ''}
+
+  ${funnelData && funnelData.steps.length > 0 ? `
+  <!-- ==================== FUNNEL SCREENSHOTS ==================== -->
+  <div class="page">
+    <div class="page-header">
+      <h1 class="page-title">Funnel Screenshots</h1>
+      <span class="page-number">02</span>
+    </div>
+
+    <div class="screenshot-section">
+      ${funnelData.steps.map((step, index) => `
+        <div class="screenshot-card">
+          <div class="screenshot-header">
+            <div class="screenshot-step">${step.step}</div>
+            <div>
+              <div class="screenshot-title">${escapeHtml(step.title)}</div>
+              <div class="screenshot-url">${escapeHtml(step.url.slice(0, 80))}${step.url.length > 80 ? '...' : ''}</div>
+            </div>
+          </div>
+          ${screenshots[step.screenshot]
+            ? `<img src="data:image/png;base64,${screenshots[step.screenshot]}" class="screenshot-image" alt="Step ${step.step}">`
+            : `<div class="screenshot-placeholder">Screenshot not available</div>`
+          }
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="page-footer">
+      <span>Funnel Hacker • Competitive Intelligence</span>
+      <span>${escapeHtml(domain)}</span>
+    </div>
+  </div>
+  ` : ''}
+
+  ${analysisData ? `
+  <!-- ==================== FULL ANALYSIS ==================== -->
+  <div class="page">
+    <div class="page-header">
+      <h1 class="page-title">Strategic Analysis</h1>
+      <span class="page-number">03</span>
+    </div>
+
+    <div class="analysis-section">
+      ${processMarkdown(analysisData.fullAnalysis)}
+    </div>
+
+    <div class="page-footer">
+      <span>Funnel Hacker • Competitive Intelligence</span>
+      <span>${escapeHtml(domain)}</span>
+    </div>
+  </div>
+  ` : ''}
+
 </body>
 </html>`;
 }

@@ -24,6 +24,9 @@ export type SpecialistType =
   | "email"
   | "vsl-presentation"
   | "copy"
+  | "direct-response-copy"
+  | "landing-page-elements"
+  | "designer"
   | "head-funnel-hacker";
 
 interface SpecialistConfig {
@@ -57,6 +60,21 @@ const SPECIALIST_MAP: Record<SpecialistType, SpecialistConfig> = {
     file: "copy-specialist.md",
     name: "Clara",
     description: "Direct Response Copy Specialist",
+  },
+  "direct-response-copy": {
+    file: "direct-response-copy.md",
+    name: "Claudia",
+    description: "DR Copy Analyst (Halbert/Schwartz Framework)",
+  },
+  "landing-page-elements": {
+    file: "landing-page-elements.md",
+    name: "Elena",
+    description: "Landing Page Elements Analyst",
+  },
+  designer: {
+    file: "designer.md",
+    name: "Derek",
+    description: "Report Designer & Creative Director",
   },
   "head-funnel-hacker": {
     file: "head-funnel-hacker.md",
@@ -184,7 +202,8 @@ export async function runFullAnalysis(
 }> {
   const specialistsToRun: SpecialistType[] = options.includeSpecialists || [
     "funnel-architect",
-    "copy",
+    "landing-page-elements",
+    "direct-response-copy",
   ];
 
   // Add specialists based on content
@@ -265,6 +284,30 @@ export async function runFullAnalysis(
       }
     } else if (specialist === "vsl-presentation") {
       content = `Analyze the video/presentation content from these pages:\n\n`;
+      for (const step of funnelData.steps) {
+        content += `Page: ${step.title}\nURL: ${step.url}\n\n`;
+        if (step.screenshotBase64) {
+          images.push({
+            type: "base64",
+            media_type: "image/png",
+            data: step.screenshotBase64,
+          });
+        }
+      }
+    } else if (specialist === "landing-page-elements") {
+      content = `Analyze all visual and structural elements on these landing pages. Focus on: trust bars, video placement, CTAs, forms, visual hierarchy, social proof elements, and what's working well visually:\n\n`;
+      for (const step of funnelData.steps) {
+        content += `Page: ${step.title}\nURL: ${step.url}\n\n`;
+        if (step.screenshotBase64) {
+          images.push({
+            type: "base64",
+            media_type: "image/png",
+            data: step.screenshotBase64,
+          });
+        }
+      }
+    } else if (specialist === "direct-response-copy") {
+      content = `Analyze this landing page copy using classic direct response frameworks (Schwartz, Halbert, Ogilvy). Identify market sophistication level, awareness level, headline effectiveness, proof stack, and what copy elements are working well:\n\n`;
       for (const step of funnelData.steps) {
         content += `Page: ${step.title}\nURL: ${step.url}\n\n`;
         if (step.screenshotBase64) {

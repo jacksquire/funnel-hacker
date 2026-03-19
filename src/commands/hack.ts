@@ -16,8 +16,16 @@ interface HackOptions {
 }
 
 export async function hackFunnel(startUrl: string, options: HackOptions) {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const outputDir = join(options.output, `hack-${timestamp}`);
+  // Create smart output directory name: domain-YYYY-MM-DD
+  let domain = "unknown";
+  try {
+    domain = new URL(startUrl).hostname
+      .replace(/^www\./, "")
+      .replace(/\./g, "-")
+      .slice(0, 30);
+  } catch {}
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const outputDir = join(options.output, `${domain}-${dateStr}`);
 
   console.log(`
 ╔═══════════════════════════════════════════════════════════════╗
